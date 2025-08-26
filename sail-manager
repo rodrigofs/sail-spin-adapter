@@ -1,0 +1,271 @@
+#!/usr/bin/env bash
+
+# Sail Manager - Switch between Laravel Sail and Spin Adapter
+set -e
+
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+VERSION="1.0.0"
+REPO_URL="https://github.com/rodrigofs/sail-spin-adapter"
+RAW_URL="https://raw.githubusercontent.com/rodrigofs/sail-spin-adapter/main"
+SAIL_ADAPTER_DIR="$HOME/.sail-spin-adapter"
+
+# Detect shell profile file
+get_shell_profile() {
+    if [ -n "$ZSH_VERSION" ]; then
+        echo "$HOME/.zshrc"
+    elif [ -n "$BASH_VERSION" ]; then
+        if [ -f "$HOME/.bashrc" ]; then
+            echo "$HOME/.bashrc"
+        else
+            echo "$HOME/.bash_profile"
+        fi
+    else
+        echo "$HOME/.profile"
+    fi
+}
+
+# Detect project type in current directory
+detect_project_type() {
+    # Check for Spin project indicators
+    if [ -d "./.infrastructure" ]; then
+        echo "spin"
+        return
+    fi
+    
+    # Check for Laravel Sail project indicators
+    if [ -f "./docker-compose.yml" ] || [ -f "./compose.yml" ]; then
+        if grep -q "laravel.test" docker-compose.yml 2>/dev/null || grep -q "laravel.test" compose.yml 2>/dev/null; then
+            echo "sail"
+            return
+        fi
+    fi
+    
+    # Check for Laravel project with vendor/bin/sail
+    if [ -f "./vendor/bin/sail" ] || [ -f "./sail" ]; then
+        echo "sail"
+        return
+    fi
+    
+    echo "unknown"
+}
+
+# Install the adapter
+install_adapter() {
+    echo -e "${GREEN}🚀 Installing Sail to Spin Adapter...${NC}"
+    
+    # Create adapter directory
+    mkdir -p "$SAIL_ADAPTER_DIR"
+    
+    # Download the adapter script
+    echo -e "${YELLOW}Downloading adapter...${NC}"
+    if curl -fsSL "$RAW_URL/sail" -o "$SAIL_ADAPTER_DIR/sail-spin"; then
+        chmod +x "$SAIL_ADAPTER_DIR/sail-spin"
+        echo -e "${GREEN}✓ Adapter downloaded!${NC}"
+    else
+        echo -e "${RED}✗ Download failed${NC}"
+        exit 1
+    fi
+    
+    echo -e "${GREEN}✓ Installation complete!${NC}"
+    echo ""
+    echo -e "${YELLOW}Next steps:${NC}"
+    echo -e "  ${YELLOW}sail-manager activate${NC}   - Use Spin adapter"
+    echo -e "  ${YELLOW}sail-manager deactivate${NC} - Use Laravel Sail"
+    echo -e "  ${YELLOW}sail-manager status${NC}     - Check current mode"
+}
+
+# Activate Spin adapter
+activate_spin() {
+    local profile_file=$(get_shell_profile)
+    
+    # Remove existing sail alias
+    if grep -q "alias sail=" "$profile_file" 2>/dev/null; then
+        echo -e "${YELLOW}Removing existing sail alias...${NC}"
+        # Use a more portable sed approach
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            sed -i '' '/^alias sail=/d' "$profile_file"
+        else
+            sed -i '/^alias sail=/d' "$profile_file"
+        fi
+    fi
+    
+    # Add Spin adapter alias
+    echo -e "${YELLOW}Activating Spin adapter...${NC}"
+    echo "" >> "$profile_file"
+    echo "# Sail Spin Adapter" >> "$profile_file"
+    echo "alias sail='$SAIL_ADAPTER_DIR/sail-spin'" >> "$profile_file"
+    
+    # Add convenience alias if not exists
+    if ! grep -q "alias sail-auto=" "$profile_file" 2>/dev/null; then
+        echo "alias sail-auto='sail-manager auto'" >> "$profile_file"
+    fi
+    
+    echo -e "${GREEN}✓ Spin adapter activated!${NC}"
+    echo -e "${YELLOW}Reload your shell or run: source $profile_file${NC}"
+}
+
+# Deactivate adapter and restore Laravel Sail
+deactivate_spin() {
+    local profile_file=$(get_shell_profile)
+    
+    echo -e "${YELLOW}Restoring Laravel Sail...${NC}"
+    
+    # Remove Spin adapter alias
+    if grep -q "alias sail='$SAIL_ADAPTER_DIR/sail-spin'" "$profile_file" 2>/dev/null; then
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            sed -i '' '/# Sail Spin Adapter/d' "$profile_file"
+            sed -i '' "\|alias sail='$SAIL_ADAPTER_DIR/sail-spin'|d" "$profile_file"
+        else
+            sed -i '/# Sail Spin Adapter/d' "$profile_file"
+            sed -i "\|alias sail='$SAIL_ADAPTER_DIR/sail-spin'|d" "$profile_file"
+        fi
+    fi
+    
+    # Add Laravel Sail alias
+    echo "" >> "$profile_file"
+    echo "# Laravel Sail" >> "$profile_file"
+    echo "alias sail='sh \$([ -f sail ] && echo sail || echo vendor/bin/sail)'" >> "$profile_file"
+    
+    # Add convenience alias if not exists
+    if ! grep -q "alias sail-auto=" "$profile_file" 2>/dev/null; then
+        echo "alias sail-auto='sail-manager auto'" >> "$profile_file"
+    fi
+    
+    echo -e "${GREEN}✓ Laravel Sail restored!${NC}"
+    echo -e "${YELLOW}Reload your shell or run: source $profile_file${NC}"
+}
+
+# Auto-detect and switch based on current project
+auto_switch() {
+    local project_type=$(detect_project_type)
+    local current_dir=$(basename "$PWD")
+    
+    echo -e "${YELLOW}Auto-detecting project type in '$current_dir'...${NC}"
+    
+    case "$project_type" in
+        "spin")
+            echo -e "${GREEN}Spin project detected!${NC}"
+            activate_spin
+            ;;
+        "sail")
+            echo -e "${YELLOW}Laravel Sail project detected!${NC}"
+            deactivate_spin
+            ;;
+        "unknown")
+            echo -e "${RED}Unable to detect project type${NC}"
+            echo "Looking for:"
+            echo "  - Spin: docker-compose.spin.yml, .spin/, spin.yml"
+            echo "  - Laravel Sail: vendor/bin/sail, sail, laravel.test in docker-compose"
+            echo ""
+            echo "Use manual commands:"
+            echo "  sail-manager activate   # For Spin projects"
+            echo "  sail-manager deactivate # For Laravel Sail projects"
+            ;;
+    esac
+}
+
+# Check current status
+check_status() {
+    local profile_file=$(get_shell_profile)
+    local project_type=$(detect_project_type)
+    local current_dir=$(basename "$PWD")
+    
+    echo "Sail Manager Status:"
+    echo "==================="
+    echo -e "${YELLOW}Current directory: $current_dir${NC}"
+    echo -e "${YELLOW}Detected project type: $project_type${NC}"
+    echo ""
+    
+    if grep -q "alias sail='$SAIL_ADAPTER_DIR/sail-spin'" "$profile_file" 2>/dev/null; then
+        echo -e "${GREEN}Current mode: Spin Adapter${NC}"
+        if [ "$project_type" = "sail" ]; then
+            echo -e "${RED}⚠️  Warning: You're in a Laravel Sail project but using Spin adapter${NC}"
+            echo -e "   Consider running: sail-manager auto"
+        fi
+    elif grep -q "alias sail=" "$profile_file" 2>/dev/null; then
+        echo -e "${YELLOW}Current mode: Laravel Sail${NC}"
+        if [ "$project_type" = "spin" ]; then
+            echo -e "${RED}⚠️  Warning: You're in a Spin project but using Laravel Sail${NC}"
+            echo -e "   Consider running: sail-manager auto"
+        fi
+    else
+        echo -e "${RED}No sail alias configured${NC}"
+    fi
+    
+    echo ""
+    echo "Available commands:"
+    echo "  sail-manager auto        - Auto-detect and switch"
+    echo "  sail-manager activate    - Force Spin adapter"
+    echo "  sail-manager deactivate  - Force Laravel Sail"
+}
+
+# Update adapter
+update_adapter() {
+    echo -e "${YELLOW}Updating adapter...${NC}"
+    if curl -fsSL "$RAW_URL/sail" -o "$SAIL_ADAPTER_DIR/sail-spin"; then
+        chmod +x "$SAIL_ADAPTER_DIR/sail-spin"
+        echo -e "${GREEN}✓ Updated!${NC}"
+    else
+        echo -e "${RED}✗ Update failed${NC}"
+    fi
+}
+
+# Open repository
+star_repo() {
+    echo -e "${YELLOW}⭐ Repository: $REPO_URL${NC}"
+    if command -v xdg-open &> /dev/null; then
+        xdg-open "$REPO_URL"
+    elif command -v open &> /dev/null; then
+        open "$REPO_URL"
+    else
+        echo "Open: $REPO_URL"
+    fi
+}
+
+# Show help
+show_help() {
+    echo "Sail Manager v$VERSION"
+    echo ""
+    echo "Commands:"
+    echo "  auto         Auto-detect project type and switch (RECOMMENDED)"
+    echo "  install      Install the Spin adapter"
+    echo "  activate     Force use Spin adapter"
+    echo "  deactivate   Force use Laravel Sail"
+    echo "  status       Check current configuration and project type"
+    echo "  update       Update the adapter"
+    echo "  star         ⭐ Give star to the project"
+    echo "  help         Show this help"
+    echo ""
+    echo "Workflow:"
+    echo "  1. cd /path/to/spin-project && sail-manager auto"
+    echo "  2. cd /path/to/laravel-project && sail-manager auto"
+    echo "  3. The 'sail' command will work correctly in each project!"
+    echo ""
+    echo "The manager works by switching the 'sail' alias in your shell profile."
+}
+
+# Main function
+main() {
+    case "${1:-help}" in
+        "auto") auto_switch ;;
+        "install") install_adapter ;;
+        "activate") activate_spin ;;
+        "deactivate") deactivate_spin ;;
+        "status") check_status ;;
+        "update") update_adapter ;;
+        "star") star_repo ;;
+        "help"|"-h"|"--help") show_help ;;
+        "--version") echo "v$VERSION" ;;
+        *)
+            echo -e "${RED}Invalid command: $1${NC}"
+            echo "Use: sail-manager help"
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
