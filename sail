@@ -128,7 +128,7 @@ main() {
         "mysql") check_spin && execute_spin exec mysql mysql -u root -p ;;
         "postgres"|"psql") check_spin && execute_spin exec postgres psql -U postgres ;;
         "redis") check_spin && execute_spin exec redis redis-cli ;;
-        "bash") check_spin && execute_spin exec php bash ;;
+        "bash") check_spin && execute_spin exec php sh ;;
         "exec") check_spin && execute_spin exec "${@:2}" ;;
         *)
             echo -e "${RED}Invalid command: $1${NC}"
