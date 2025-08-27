@@ -25,11 +25,11 @@ sail-manager activate   # Use Spin adapter
 ```bash
 # Navigate to any project and auto-detect:
 cd ~/projects/my-spin-project
-sail-auto  # Automatically activates Spin adapter
+sail-manager auto  # Automatically activates Spin adapter
 sail up -d # Uses Spin commands
 
 cd ~/projects/my-laravel-project  
-sail-auto  # Automatically switches to Laravel Sail
+sail-manager auto  # Automatically switches to Laravel Sail
 sail up -d # Uses Laravel Sail
 ```
 
