@@ -93,6 +93,16 @@ get_shell_profile() {
     fi
 }
 
+# Reload shell if interactive
+maybe_reload_shell() {
+    if [[ $- == *i* ]]; then
+        echo "Reloading shell…"
+        exec "$SHELL" -l
+    else
+        echo -e "${YELLOW}Reload your shell or run: source $profile_file${NC}"
+    fi
+}
+
 # Activate Spin adapter
 activate_spin() {
     local profile_file
@@ -127,9 +137,11 @@ activate_spin() {
     fi
 
     echo -e "${GREEN}✓ Spin adapter activated!${NC}"
-    echo -e "${YELLOW}Reload your shell or run: source $profile_file${NC}"
+
+    maybe_reload_shell
 }
 
+# Remove trailing blank lines from a file
 trim_trailing_blank_lines() {
     local file="$1"
 
@@ -175,7 +187,8 @@ deactivate_spin() {
     fi
 
     echo -e "${GREEN}✓ Laravel Sail restored!${NC}"
-    echo -e "${YELLOW}Reload your shell or run: source $profile_file${NC}"
+
+    maybe_reload_shell
 }
 
 # Auto-detect and switch based on current project
