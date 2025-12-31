@@ -78,63 +78,102 @@ install_adapter() {
     echo -e "  ${YELLOW}sail-manager status${NC}     - Check current mode"
 }
 
+# Detecta o arquivo de profile (mantém sua função atual)
+get_shell_profile() {
+    if [ -n "$ZSH_VERSION" ]; then
+        echo "$HOME/.zshrc"
+    elif [ -n "$BASH_VERSION" ]; then
+        if [ -f "$HOME/.bashrc" ]; then
+            echo "$HOME/.bashrc"
+        else
+            echo "$HOME/.bash_profile"
+        fi
+    else
+        echo "$HOME/.profile"
+    fi
+}
+
 # Activate Spin adapter
 activate_spin() {
-    local profile_file=$(get_shell_profile)
-    
-    # Remove existing sail alias
-    if grep -q "alias sail=" "$profile_file" 2>/dev/null; then
-        echo -e "${YELLOW}Removing existing sail alias...${NC}"
-        # Use a more portable sed approach
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' '/^alias sail=/d' "$profile_file"
-        else
-            sed -i '/^alias sail=/d' "$profile_file"
-        fi
+    local profile_file
+    profile_file=$(get_shell_profile)
+
+    echo -e "${YELLOW}Removing existing sail alias...${NC}"
+
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' '/^alias sail=/d' "$profile_file"
+        sed -i '' '/# Laravel Sail/d' "$profile_file"
+        sed -i '' '/# Sail Spin Adapter/d' "$profile_file"
+        sed -i '' "\|$SAIL_ADAPTER_DIR/sail-spin|d" "$profile_file"
+    else
+        sed -i '/^alias sail=/d' "$profile_file"
+        sed -i '/# Laravel Sail/d' "$profile_file"
+        sed -i '/# Sail Spin Adapter/d' "$profile_file"
+        sed -i "\|$SAIL_ADAPTER_DIR/sail-spin|d" "$profile_file"
     fi
-    
-    # Add Spin adapter alias
+
+    trim_trailing_blank_lines "$profile_file"
+
     echo -e "${YELLOW}Activating Spin adapter...${NC}"
-    echo "" >> "$profile_file"
-    echo "# Sail Spin Adapter" >> "$profile_file"
-    echo "alias sail='$SAIL_ADAPTER_DIR/sail-spin'" >> "$profile_file"
-    
-    # Add convenience alias if not exists
+
+    {
+        echo ""
+        echo "# Sail Spin Adapter"
+        echo "alias sail='$SAIL_ADAPTER_DIR/sail-spin'"
+    } >> "$profile_file"
+
     if ! grep -q "alias sail-auto=" "$profile_file" 2>/dev/null; then
         echo "alias sail-auto='sail-manager auto'" >> "$profile_file"
     fi
-    
+
     echo -e "${GREEN}✓ Spin adapter activated!${NC}"
     echo -e "${YELLOW}Reload your shell or run: source $profile_file${NC}"
 }
 
+trim_trailing_blank_lines() {
+    local file="$1"
+
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS / BSD sed
+        sed -i '' -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}' "$file"
+    else
+        # GNU sed (Linux)
+        sed -i -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}' "$file"
+    fi
+}
+
 # Deactivate adapter and restore Laravel Sail
 deactivate_spin() {
-    local profile_file=$(get_shell_profile)
-    
+    local profile_file
+    profile_file=$(get_shell_profile)
+
     echo -e "${YELLOW}Restoring Laravel Sail...${NC}"
-    
-    # Remove Spin adapter alias
-    if grep -q "alias sail='$SAIL_ADAPTER_DIR/sail-spin'" "$profile_file" 2>/dev/null; then
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' '/# Sail Spin Adapter/d' "$profile_file"
-            sed -i '' "\|alias sail='$SAIL_ADAPTER_DIR/sail-spin'|d" "$profile_file"
-        else
-            sed -i '/# Sail Spin Adapter/d' "$profile_file"
-            sed -i "\|alias sail='$SAIL_ADAPTER_DIR/sail-spin'|d" "$profile_file"
-        fi
+
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' '/^alias sail=/d' "$profile_file"
+        sed -i '' '/# Sail Spin Adapter/d' "$profile_file"
+        sed -i '' '/# Laravel Sail/d' "$profile_file"
+        sed -i '' "\|$SAIL_ADAPTER_DIR/sail-spin|d" "$profile_file"
+    else
+        sed -i '/^alias sail=/d' "$profile_file"
+        sed -i '/# Sail Spin Adapter/d' "$profile_file"
+        sed -i '/# Laravel Sail/d' "$profile_file"
+        sed -i "\|$SAIL_ADAPTER_DIR/sail-spin|d" "$profile_file"
     fi
-    
-    # Add Laravel Sail alias
-    echo "" >> "$profile_file"
-    echo "# Laravel Sail" >> "$profile_file"
-    echo "alias sail='sh \$([ -f sail ] && echo sail || echo vendor/bin/sail)'" >> "$profile_file"
-    
-    # Add convenience alias if not exists
+
+    # 🔹 Remove linhas em branco no final ANTES de anexar o bloco
+    trim_trailing_blank_lines "$profile_file"
+
+    {
+        echo ""                       # exatamente UMA linha em branco
+        echo "# Laravel Sail"
+        echo "alias sail='sh \$([ -f sail ] && echo sail || echo vendor/bin/sail)'"
+    } >> "$profile_file"
+
     if ! grep -q "alias sail-auto=" "$profile_file" 2>/dev/null; then
         echo "alias sail-auto='sail-manager auto'" >> "$profile_file"
     fi
-    
+
     echo -e "${GREEN}✓ Laravel Sail restored!${NC}"
     echo -e "${YELLOW}Reload your shell or run: source $profile_file${NC}"
 }
