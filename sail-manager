@@ -9,6 +9,11 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 VERSION="1.0.0"
+
+REPO_OWNER="rodrigofs"
+REPO_NAME="sail-spin-adapter"
+REPO_BRANCH="main"
+
 REPO_URL="https://github.com/rodrigofs/sail-spin-adapter"
 RAW_URL="https://raw.githubusercontent.com/rodrigofs/sail-spin-adapter/main"
 SAIL_ADAPTER_DIR="$HOME/.sail-spin-adapter"
@@ -27,6 +32,34 @@ get_shell_profile() {
         echo "$HOME/.profile"
     fi
 }
+
+# get remote commit hash
+get_remote_commit() {
+    curl -fsSL "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/commits?path=sail&sha=$REPO_BRANCH&per_page=1" \
+        | grep -m1 '"sha"' \
+        | sed -E 's/.*"sha": *"([^"]+)".*/\1/'
+}
+
+# get local commit hash
+get_local_commit() {
+    local commit_file="$SAIL_ADAPTER_DIR/sail-spin.commit"
+
+    if [ -f "$commit_file" ]; then
+        cat "$commit_file"
+    else
+        echo ""
+    fi
+}
+
+# set local commit hash
+set_local_commit() {
+    local sha="$1"
+    local commit_file="$SAIL_ADAPTER_DIR/sail-spin.commit"
+
+    mkdir -p "$SAIL_ADAPTER_DIR"
+    echo "$sha" > "$commit_file"
+}
+
 
 # Detect project type in current directory
 detect_project_type() {
@@ -257,13 +290,84 @@ check_status() {
 
 # Update adapter
 update_adapter() {
-    echo -e "${YELLOW}Updating adapter...${NC}"
-    if curl -fsSL "$RAW_URL/sail" -o "$SAIL_ADAPTER_DIR/sail-spin"; then
-        chmod +x "$SAIL_ADAPTER_DIR/sail-spin"
-        echo -e "${GREEN}✓ Updated!${NC}"
-    else
-        echo -e "${RED}✗ Update failed${NC}"
+    local silent="no"
+    if [ "${1:-}" = "--silent" ]; then
+        silent="yes"
     fi
+
+    [ "$silent" = "no" ] && echo -e "${YELLOW}Checking for adapter updates (by commit)...${NC}"
+
+    mkdir -p "$SAIL_ADAPTER_DIR"
+
+    local current="$SAIL_ADAPTER_DIR/sail-spin"
+    local tmp="$SAIL_ADAPTER_DIR/sail-spin.tmp"
+
+    local remote_sha
+    remote_sha=$(get_remote_commit)
+
+    if [ -z "$remote_sha" ]; then
+        [ "$silent" = "no" ] && echo -e "${RED}✗ Could not get remote commit from GitHub API${NC}"
+        return 1
+    fi
+
+    local local_sha
+    local_sha=$(get_local_commit)
+
+    if [ -n "$local_sha" ] && [ "$local_sha" = "$remote_sha" ] && [ -f "$current" ]; then
+        [ "$silent" = "no" ] && echo -e "${GREEN}✓ Adapter already up to date (commit $remote_sha).${NC}"
+        return 0
+    fi
+
+    [ "$silent" = "no" ] && echo -e "${YELLOW}New commit detected (local: ${local_sha:-none}, remote: $remote_sha). Downloading...${NC}"
+
+    if ! curl -fsSL "$RAW_URL/sail" -o "$tmp"; then
+        [ "$silent" = "no" ] && echo -e "${RED}✗ Failed to download latest adapter script${NC}"
+        rm -f "$tmp"
+        return 1
+    fi
+
+    mv "$tmp" "$current"
+    chmod +x "$current"
+    set_local_commit "$remote_sha"
+
+    [ "$silent" = "no" ] && echo -e "${GREEN}✓ Adapter updated to commit $remote_sha.${NC}"
+
+    return 0
+}
+
+maybe_auto_update() {
+    local command="$1"
+
+    case "$command" in
+        update|install|help|-h|--help|--version|star)
+            return
+            ;;
+    esac
+
+    mkdir -p "$SAIL_ADAPTER_DIR"
+
+    local ts_file="$SAIL_ADAPTER_DIR/last_update_check"
+    local now last interval
+
+    interval=$((24 * 60 * 60))
+
+    if [ -n "$SAIL_MANAGER_UPDATE_INTERVAL" ]; then
+        interval="$SAIL_MANAGER_UPDATE_INTERVAL"
+    fi
+
+    now=$(date +%s)
+
+    if [ -f "$ts_file" ]; then
+        last=$(cat "$ts_file" 2>/dev/null || echo 0)
+
+        if [ "$((now - last))" -lt "$interval" ]; then
+            return
+        fi
+    fi
+
+    update_adapter --silent || true
+
+    echo "$now" > "$ts_file"
 }
 
 # Open repository
@@ -302,6 +406,8 @@ show_help() {
 
 # Main function
 main() {
+    maybe_auto_update "$cmd"
+
     case "${1:-help}" in
         "auto") auto_switch ;;
         "install") install_adapter ;;
